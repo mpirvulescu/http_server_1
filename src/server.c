@@ -1,4 +1,5 @@
-#include "../include/display.h"
+#include "../include/server.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 static void parse_arguments(struct server_context *ctx);
@@ -26,7 +27,7 @@ static void set_status(struct server_context *ctx);
 
 int main(void)
 {
-    display("Hello, World");
+    printf("Hello, World");
 
     return EXIT_SUCCESS;
 }
