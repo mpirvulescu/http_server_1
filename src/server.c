@@ -44,3 +44,24 @@ int main(void)
 
     return EXIT_SUCCESS;
 }
+
+static void parse_arguments(Context ctx) {
+    int opt;
+    const char *optstring = ":h";
+    opterr = 0;
+
+    while((opt = getopt(ctx->argc, ctx->argv, optstring)) != -1) {
+        switch(opt) {
+            case 'h':
+                ctx->exit_code = EXIT_SUCCESS;
+                print_usage(ctx);
+                
+        }
+    }
+}
+
+static void print_usage(Context ctx) {
+    fprintf(stderr, "Usage: %s, <Port number>\n", ctx->argv);
+    fprintf(stderr, "\nOptions:\n");
+    fprintf(stderr, "-h Display this help and exit\n");
+}
