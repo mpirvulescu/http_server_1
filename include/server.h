@@ -1,6 +1,5 @@
 
-#ifndef SERVER_H
-#define SERVER_H
+#pragma once
 
 #include <poll.h>
 #include <sys/un.h>
@@ -23,5 +22,3 @@ struct server_context {
     nfds_t num_clients;
     int *client_sockets;
 };
-
-#endif /*SERVER_H*/
