@@ -4,13 +4,20 @@
 #include <poll.h>
 #include <sys/un.h>
 
+enum {
+    ERROR_BUFFER_SIZE = 256
+};
+
+struct client_state {
+    int client_sockets;
+};
+
 struct server_context {
     int argc;
-    char **argv;
+    const char **argv;
 
     int exit_code;
-    const char *exit_message;
-    char error_buffer[256];
+    char *exit_message; // Dynamically allocated
 
     struct sockaddr_un addr;
 
@@ -19,6 +26,11 @@ struct server_context {
 
     struct pollfd *pollfds;
     nfds_t pollfds_capacity;
+
     nfds_t num_clients;
-    int *client_sockets;
+    struct client_state* clients;
 };
+
+typedef struct client_state client_state;
+typedef struct server_context server_context;
+
