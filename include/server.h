@@ -2,6 +2,7 @@
 #pragma once
 
 #include <poll.h>
+#include <stdint.h>
 #include <sys/un.h>
 
 enum {
@@ -21,8 +22,9 @@ struct server_context {
 
     struct sockaddr_un addr;
 
-    const char *socket_path;
     int listen_fd;
+    uint16_t port;
+    const char *root_directory;
 
     struct pollfd *pollfds;
     nfds_t pollfds_capacity;
