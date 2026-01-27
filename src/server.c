@@ -2,32 +2,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void parse_arguments(struct server_context *ctx) {};
-static void validate_arguments(struct server_context *ctx) {};
-static void print_usage(struct server_context *ctx) {};
-static void init_server_socket(struct server_context *ctx) {};
-static void event_loop(struct server_context *ctx) {};
-static void accept_client(struct server_context *ctx) {};
-static void close_client(struct server_context *ctx) {};
-static void cleanup_server(struct server_context *ctx) {};
-static void read_request(struct server_context *ctx) {};
-static void parse_http_request(struct server_context *ctx) {};
-static void validate_http_request(struct server_context *ctx) {};
-static void dispatch_method(struct server_context *ctx) {};
-static void handle_get(struct server_context *ctx) {};
-static void handle_head(struct server_context *ctx) {};
-static void handle_post(struct server_context *ctx) {};
-static void map_url_to_path(struct server_context *ctx) {};
-static void check_file(struct server_context *ctx) {};
-static void read_file(struct server_context *ctx) {};
-static void send_response_headers(struct server_context *ctx) {};
-static void send_response_body(struct server_context *ctx) {};
-static void send_error_response(struct server_context *ctx) {};
-static void set_status(struct server_context *ctx) {};
+typedef struct server_context Context;
+
+static void parse_arguments(Context *ctx) {};
+static void validate_arguments(Context *ctx) {};
+static void print_usage(Context *ctx) {};
+static void init_server_socket(Context *ctx) {};
+static void event_loop(Context *ctx) {};
+static void accept_client(Context *ctx) {};
+static void close_client(Context *ctx) {};
+static void cleanup_server(Context *ctx) {};
+static void read_request(Context *ctx) {};
+static void parse_http_request(Context *ctx) {};
+static void validate_http_request(Context *ctx) {};
+static void dispatch_method(Context *ctx) {};
+static void handle_get(Context *ctx) {};
+static void handle_head(Context *ctx) {};
+static void handle_post(Context *ctx) {};
+static void map_url_to_path(Context *ctx) {};
+static void check_file(Context *ctx) {};
+static void read_file(Context *ctx) {};
+static void send_response_headers(Context *ctx) {};
+static void send_response_body(Context *ctx) {};
+static void send_error_response(Context *ctx) {};
+static void set_status(Context *ctx) {};
 
 int main(const int argc, const char *argv[])
 {
-    struct server_context ctx = {0};
+    Context ctx = {0};
 
     ctx.argc = argc;
     ctx.argv = argv;
