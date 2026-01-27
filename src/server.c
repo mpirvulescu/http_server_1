@@ -27,7 +27,20 @@ static void set_status(struct server_context *ctx);
 
 int main(void)
 {
-    printf("Hello, World");
+    struct server_context ctx = {0};
+
+    ctx.argc = argc;
+    ctx.argv = argv;
+
+    ctx.exit_code = EXIT_SUCCESS;
+    ctx.listen_fd = -1;
+    ctx.num_clients = 0;
+    ctx.pollfds = NULL;
+    ctx.client_sockets = NULL;
+    ctx.pollfds_capacity = 0;
+
+    parse_arguments(&ctx);
+    validate_arguments(&ctx);
 
     return EXIT_SUCCESS;
 }
