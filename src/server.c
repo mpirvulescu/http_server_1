@@ -2,44 +2,118 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef struct server_context Context;
-
-static void parse_arguments(Context *ctx) {};
-static void validate_arguments(Context *ctx) {};
-static void print_usage(Context *ctx) {};
-static void init_server_socket(Context *ctx) {};
-static void event_loop(Context *ctx) {};
-static void accept_client(Context *ctx) {};
-static void close_client(Context *ctx) {};
-static void cleanup_server(Context *ctx) {};
-static void read_request(Context *ctx) {};
-static void parse_http_request(Context *ctx) {};
-static void validate_http_request(Context *ctx) {};
-static void dispatch_method(Context *ctx) {};
-static void handle_get(Context *ctx) {};
-static void handle_head(Context *ctx) {};
-static void handle_post(Context *ctx) {};
-static void map_url_to_path(Context *ctx) {};
-static void check_file(Context *ctx) {};
-static void read_file(Context *ctx) {};
-static void send_response_headers(Context *ctx) {};
-static void send_response_body(Context *ctx) {};
-static void send_error_response(Context *ctx) {};
-static void set_status(Context *ctx) {};
-
-int main(const int argc, const char *argv[])
+static server_context init_context()
 {
-    Context ctx = {0};
+    server_context ctx = {0};
 
-    ctx.argc = argc;
-    ctx.argv = argv;
+    ctx.argc = 0;
+    ctx.argv = NULL;
 
     ctx.exit_code        = EXIT_SUCCESS;
+    ctx.exit_message     = NULL;
     ctx.listen_fd        = -1;
     ctx.num_clients      = 0;
     ctx.pollfds          = NULL;
-    ctx.client_sockets   = NULL;
+    ctx.clients          = NULL;
     ctx.pollfds_capacity = 0;
+
+    return ctx;
+}
+
+static void parse_arguments(const server_context *ctx)
+{
+}
+
+static void validate_arguments(const server_context *ctx)
+{
+}
+
+static void print_usage(const server_context *ctx)
+{
+}
+
+static void init_server_socket(const server_context *ctx)
+{
+}
+
+static void event_loop(const server_context *ctx)
+{
+}
+
+static void accept_client(const server_context *ctx)
+{
+}
+
+static void close_client(const server_context *ctx)
+{
+}
+
+static void cleanup_server(const server_context *ctx)
+{
+}
+
+static void read_request(const server_context *ctx)
+{
+}
+
+static void parse_http_request(const server_context *ctx)
+{
+}
+
+static void validate_http_request(const server_context *ctx)
+{
+}
+
+static void dispatch_method(const server_context *ctx)
+{
+}
+
+static void handle_get(const server_context *ctx)
+{
+}
+
+static void handle_head(const server_context *ctx)
+{
+}
+
+static void handle_post(const server_context *ctx)
+{
+}
+
+static void map_url_to_path(const server_context *ctx)
+{
+}
+
+static void check_file(const server_context *ctx)
+{
+}
+
+static void read_file(const server_context *ctx)
+{
+}
+
+static void send_response_headers(const server_context *ctx)
+{
+}
+
+static void send_response_body(const server_context *ctx)
+{
+}
+
+static void send_error_response(const server_context *ctx)
+{
+}
+
+static void set_status(const server_context *ctx)
+{
+}
+
+int main(const int argc, const char *argv[])
+{
+    server_context ctx;
+    ctx      = init_context();
+    ctx.argc = argc;
+    ctx.argv = argv;
 
     parse_arguments(&ctx);
     validate_arguments(&ctx);
