@@ -4,13 +4,17 @@
 #include <poll.h>
 #include <sys/un.h>
 
+enum {
+    ERROR_BUFFER_SIZE = 256
+};
+
 struct server_context {
     int argc;
-    char **argv;
+    const char **argv;
 
     int exit_code;
     const char *exit_message;
-    char error_buffer[256];
+    char error_buffer[ERROR_BUFFER_SIZE];
 
     struct sockaddr_un addr;
 
