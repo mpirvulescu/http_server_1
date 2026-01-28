@@ -8,8 +8,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables
 static volatile sig_atomic_t exit_flag = 0;
+
+static void parse_http_request(const server_context *ctx, client_state *state);
 
 static server_context init_context()
 {
@@ -59,8 +62,70 @@ static void cleanup_server(const server_context *ctx)
 {
 }
 
-static void read_request(const server_context *ctx, const client_state *state)
+static void read_request(const server_context *ctx, client_state *state)
 {
+    const char  *request_sentinel        = "\r\n\r\n";
+    const size_t request_sentinel_length = strlen(request_sentinel);
+
+    // Allocate request buffer
+    state->request_buffer = malloc(BASE_REQUEST_BUFFER_CAPACITY);
+    if(state->request_buffer == NULL)
+    {
+        close_client(ctx, state);
+        return;
+    }
+    state->request_buffer_capacity = BASE_REQUEST_BUFFER_CAPACITY;
+    state->request_buffer_filled   = 0;
+
+    bool isEndOfRequest;
+    do
+    {
+        size_t remaining_buffer_space = state->request_buffer_capacity - state->request_buffer_filled;
+
+        // Reallocate if there is not much space
+        if(remaining_buffer_space < REQUEST_BUFFER_INCREASE_THRESHOLD)
+        {
+            const size_t new_capacity       = state->request_buffer_capacity * 2;
+            void        *new_buffer_pointer = realloc(state->request_buffer, new_capacity);
+            if(new_buffer_pointer == NULL)
+            {
+                free(state->request_buffer);
+                state->request_buffer_capacity = 0;
+                state->request_buffer_filled   = 0;
+                close_client(ctx, state);
+                return;
+            }
+            state->request_buffer          = new_buffer_pointer;
+            state->request_buffer_capacity = new_capacity;
+        }
+
+        // Read into the buffer
+        const ssize_t result = read(state->socket, state->request_buffer + state->request_buffer_filled, 1);
+        switch(result)
+        {
+            case -1:    // ERROR
+                if(errno != EINTR)
+                {
+                    free(state->request_buffer);
+                    state->request_buffer_capacity = 0;
+                    state->request_buffer_filled   = 0;
+                    close_client(ctx, state);
+                    return;
+                }
+            case 0:    // EOF
+                free(state->request_buffer);
+                state->request_buffer_capacity = 0;
+                state->request_buffer_filled   = 0;
+                close_client(ctx, state);
+                return;
+            default:
+                state->request_buffer_filled += result;
+        }
+
+        isEndOfRequest = strncmp(state->request_buffer + state->request_buffer_filled - request_sentinel_length, request_sentinel, request_sentinel_length) == 0;
+    } while(isEndOfRequest);
+    state->request_buffer[state->request_buffer_filled] = '\0';
+    parse_http_request(ctx, state);
 }
 
 struct split_string
@@ -338,7 +403,7 @@ static void validate_arguments(server_context *ctx)
     unsigned long user_defined_port;
     user_defined_port = strtoul(ctx->user_entered_port, &endptr, PORT_INPUT_BASE);
 
-    if(errno != 0 || *endptr != '\0' || user_defined_port > MAX_PORT_NUMBER || user_defined_port < 0)
+    if(errno != 0 || *endptr != '\0' || user_defined_port > UINT16_MAX || user_defined_port < 0)
     {
         fprintf(stderr, "Error: Invalid port number. Must be between 0 and 65535.\n");
         ctx->exit_code = EXIT_FAILURE;
