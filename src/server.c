@@ -1,11 +1,15 @@
 #include "../include/server.h"
 #include <errno.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables
+static volatile sig_atomic_t exit_flag = 0;
 
 static server_context init_context()
 {
@@ -30,6 +34,10 @@ static void parse_arguments(server_context *ctx);
 static void validate_arguments(server_context *ctx);
 
 static void print_usage(const server_context *ctx);
+
+static void setup_signal_handler(void);
+
+static void signal_handler(int sig);
 
 static void init_server_socket(const server_context *ctx)
 {
@@ -369,3 +377,24 @@ static void print_usage(const server_context *ctx)
     fprintf(stderr, "\nOptions:\n");
     fprintf(stderr, "-h Display this help and exit\n");
 }
+
+static void setup_signal_handler(void)
+{
+    struct sigaction sa = {0};
+#ifdef __clang__
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
+#endif
+    sa.sa_handler = signal_handler;
+#ifdef __clang__
+    #pragma clang diagnostic pop
+#endif
+    sigaction(SIGINT, &sa, NULL);
+}
+
+static void signal_handler(int sig)
+{
+    exit_flag = 1;
+}
+
+static 
