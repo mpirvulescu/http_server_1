@@ -3,12 +3,16 @@
 
 #include <poll.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <sys/un.h>
 
 enum {
     ERROR_BUFFER_SIZE = 256,
     PORT_INPUT_BASE = 10,
     MAX_PORT_NUMBER = 65535,
+
+    BASE_REQUEST_BUFFER_CAPACITY = 30,
+    REQUEST_BUFFER_INCREASE_THRESHOLD = 20,
 };
 
 struct http_request {
@@ -23,7 +27,8 @@ typedef struct http_request http_request;
 struct client_state {
     int socket;
 
-    int request_buffer_size;
+    size_t request_buffer_capacity;
+    size_t request_buffer_filled;
     char *request_buffer;
 
     http_request request;
