@@ -8,9 +8,25 @@ enum {
     ERROR_BUFFER_SIZE = 256
 };
 
-struct client_state {
-    int client_sockets;
+struct http_request {
+    char *method;
+    char *path;
+    char *protocolVersion;
+    char **headers;
 };
+
+typedef struct http_request http_request;
+
+struct client_state {
+    int socket;
+
+    int request_buffer_size;
+    char *request_buffer;
+
+    http_request request;
+};
+
+typedef struct client_state client_state;
 
 struct server_context {
     int argc;
@@ -31,6 +47,5 @@ struct server_context {
     struct client_state* clients;
 };
 
-typedef struct client_state client_state;
 typedef struct server_context server_context;
 

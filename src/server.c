@@ -1,6 +1,9 @@
 #include "../include/server.h"
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static server_context init_context()
 {
@@ -44,7 +47,7 @@ static void accept_client(const server_context *ctx)
 {
 }
 
-static void close_client(const server_context *ctx)
+static void close_client(const server_context *ctx, const client_state *state)
 {
 }
 
@@ -52,39 +55,165 @@ static void cleanup_server(const server_context *ctx)
 {
 }
 
-static void read_request(const server_context *ctx)
+static void read_request(const server_context *ctx, const client_state *state)
 {
 }
 
-static void parse_http_request(const server_context *ctx)
+struct split_string
+{
+    size_t count;
+    char **strings;
+};
+
+static struct split_string str_split(char *string, const char *delimiter)
+{
+    size_t              substring_count;
+    char               *last_delimiter;
+    size_t              cur_substring;
+    char               *token;
+    size_t              delimiter_length;
+    struct split_string result;
+    bool                lastIndexWasDelim = false;
+    char               *temp_string;
+
+    result.count = 0;
+    if(delimiter == NULL || delimiter[0] == '\0' || string == NULL || string[0] == '\0')
+    {
+        result.strings = NULL;
+        return result;
+    }
+
+    temp_string = strdup(string);
+    token       = strtok(temp_string, delimiter);
+    while(token != NULL)
+    {
+        result.count++;
+        token = strtok(NULL, delimiter);
+    }
+    free(temp_string);
+
+    if(result.count == 0)
+    {
+        result.strings = NULL;
+        return result;
+    }
+
+    result.strings = (char **)malloc(sizeof(char *) * result.count);
+    memset((void *)result.strings, 0, (sizeof(char *) * result.count));
+
+    if(result.strings == NULL)
+    {
+        result.strings = NULL;
+        return result;
+    }
+
+    cur_substring = 0;
+    temp_string   = strdup(string);
+    token         = strtok(string, delimiter);
+    while(token != NULL)
+    {
+        if(cur_substring == result.count)
+        {
+            // Somehow more tokens than we expected
+            printf("str_split error: more tokens than expected");
+            break;
+        }
+        result.strings[cur_substring] = strdup(token);
+        token                         = strtok(NULL, delimiter);
+        cur_substring++;
+    }
+    free(temp_string);
+
+    return result;
+}
+
+static void free_split_string(struct split_string split_string)
+{
+    if(split_string.strings == NULL)
+    {
+        return;
+    }
+
+    // Free all of the duped strings
+    for(int i = 0; i < split_string.count; i++)
+    {
+        if(split_string.strings[i] == NULL)
+        {
+            continue;
+        }
+        free(split_string.strings[i]);
+        split_string.strings[i] = NULL;
+    }
+    // Free the array itself
+    free((void *)split_string.strings);
+    split_string.strings = NULL;
+}
+
+static void parse_http_request(const server_context *ctx, client_state *state)
+{
+    struct split_string lines;
+    lines = str_split(state->request_buffer, "\r\n");
+
+    if(lines.count < 1)
+    {
+        free_split_string(lines);
+        close_client(ctx, state);
+        return;
+    }
+
+    struct split_string mainParts = str_split(lines.strings[0], " ");
+    if(mainParts.count != 3)
+    {
+        free_split_string(lines);
+        free_split_string(mainParts);
+        close_client(ctx, state);
+        return;
+    }
+    if(strcmp(mainParts.strings[2], "HTTP/1.0") != 0)
+    {
+        free_split_string(lines);
+        free_split_string(mainParts);
+        close_client(ctx, state);
+        return;
+    }
+    state->request.method          = strdup(mainParts.strings[0]);
+    state->request.path            = strdup(mainParts.strings[1]);
+    state->request.protocolVersion = strdup(mainParts.strings[2]);
+
+    for(int line = 1; line < lines.count; line++)
+    {
+        // lines.strings[line] // New header
+    }
+
+    free_split_string(mainParts);
+    free_split_string(lines);
+}
+
+static void validate_http_request(const client_state *state)
 {
 }
 
-static void validate_http_request(const server_context *ctx)
+static void dispatch_method(const client_state *state)
 {
 }
 
-static void dispatch_method(const server_context *ctx)
+static void handle_get(const client_state *state)
 {
 }
 
-static void handle_get(const server_context *ctx)
+static void handle_head(const client_state *state)
 {
 }
 
-static void handle_head(const server_context *ctx)
+static void handle_post(const client_state *state)
 {
 }
 
-static void handle_post(const server_context *ctx)
+static void map_url_to_path()
 {
 }
 
-static void map_url_to_path(const server_context *ctx)
-{
-}
-
-static void check_file(const server_context *ctx)
+static void check_file()
 {
 }
 
@@ -120,3 +249,26 @@ int main(const int argc, const char *argv[])
 
     return EXIT_SUCCESS;
 }
+
+// Main for testing parse_http_request
+// int main()
+// {
+//     client_state state = {0};
+//
+//     // Different requests to test
+//     // const char *req = "GET    /weird   HTTP/1.0\r\nhOsT:example.com\r\nUser-Agent:TestAgent/0.1\r\nAccept: */*\r\n\r\n";
+//     // const char *req = "GET http://example.com/path/to/resource?x=1&y=2 HTTP/1.0\r\nUser-Agent: TestAgent/0.1\r\nAccept: text/html\r\n\r\n";
+//     const char *req      = "GET /index.html HTTP/1.0\r\nHost: example.com\r\nUser-Agent: TestAgent/0.1\r\nAccept: */*\r\n\r\n";
+//     state.request_buffer = strdup(req);
+//
+//     parse_http_request(NULL, &state);
+//     free(state.request_buffer);
+//
+//     printf("%s\n%s\n%s\n", state.request.method, state.request.path, state.request.protocolVersion);
+//
+//     free(state.request.method);
+//     free(state.request.path);
+//     free(state.request.protocolVersion);
+//
+//     return EXIT_SUCCESS;
+// }
