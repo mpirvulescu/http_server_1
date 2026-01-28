@@ -15,7 +15,7 @@ struct client_state {
 
 struct server_context {
     int argc;
-    const char **argv;
+    char **argv;
 
     int exit_code;
     char *exit_message; // Dynamically allocated
@@ -23,7 +23,8 @@ struct server_context {
     struct sockaddr_un addr;
 
     int listen_fd;
-    uint16_t port;
+    const char* user_entered_port;
+    uint16_t port_number;
     const char *root_directory;
 
     struct pollfd *pollfds;
