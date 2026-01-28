@@ -2,6 +2,7 @@
 #pragma once
 
 #include <poll.h>
+#include <stdint.h>
 #include <sys/un.h>
 
 enum {
@@ -30,15 +31,17 @@ typedef struct client_state client_state;
 
 struct server_context {
     int argc;
-    const char **argv;
+    char **argv;
 
     int exit_code;
     char *exit_message; // Dynamically allocated
 
     struct sockaddr_un addr;
 
-    const char *socket_path;
     int listen_fd;
+    const char* user_entered_port;
+    uint16_t port_number;
+    const char *root_directory;
 
     struct pollfd *pollfds;
     nfds_t pollfds_capacity;
