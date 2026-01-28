@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static void parse_http_request(const server_context *ctx, client_state *state);
+
 static server_context init_context()
 {
     server_context ctx = {0};
@@ -113,6 +115,8 @@ static void read_request(const server_context *ctx, client_state *state)
 
         isEndOfRequest = strncmp(state->request_buffer + state->request_buffer_filled - request_sentinel_length, request_sentinel, request_sentinel_length) == 0;
     } while(isEndOfRequest);
+    state->request_buffer[state->request_buffer_filled] = '\0';
+    parse_http_request(ctx, state);
 }
 
 struct split_string
