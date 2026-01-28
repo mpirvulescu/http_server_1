@@ -394,7 +394,7 @@ static void validate_arguments(server_context *ctx)
     unsigned long user_defined_port;
     user_defined_port = strtoul(ctx->user_entered_port, &endptr, PORT_INPUT_BASE);
 
-    if(errno != 0 || *endptr != '\0' || user_defined_port > MAX_PORT_NUMBER || user_defined_port < 0)
+    if(errno != 0 || *endptr != '\0' || user_defined_port > UINT16_MAX || user_defined_port < 0)
     {
         fprintf(stderr, "Error: Invalid port number. Must be between 0 and 65535.\n");
         ctx->exit_code = EXIT_FAILURE;
