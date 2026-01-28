@@ -319,7 +319,7 @@ static void validate_arguments(server_context *ctx)
 
     if(ctx->root_directory == NULL)
     {
-        fprintf(stderr, "Error: Root Directory is required (-f <root directory).\n");
+        fprintf(stderr, "Error: Root Directory is required (-f <root directory>).\n");
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
         return;
@@ -328,9 +328,9 @@ static void validate_arguments(server_context *ctx)
     char *endptr;
     errno = 0;
     unsigned long user_defined_port;
-    user_defined_port = strtoul(ctx->user_entered_port, &endptr, 10);
+    user_defined_port = strtoul(ctx->user_entered_port, &endptr, PORT_INPUT_BASE);
 
-    if(errno != 0 || *endptr != '\0' || user_defined_port > 65535 || user_defined_port < 0)
+    if(errno != 0 || *endptr != '\0' || user_defined_port > MAX_PORT_NUMBER || user_defined_port < 0)
     {
         fprintf(stderr, "Error: Invalid port number. Must be between 0 and 65535.\n");
         ctx->exit_code = EXIT_FAILURE;
@@ -365,7 +365,7 @@ static void validate_arguments(server_context *ctx)
 
 static void print_usage(const server_context *ctx)
 {
-    fprintf(stderr, "Usage: %s, <Port number>\n", ctx->argv[0]);
+    fprintf(stderr, "Usage: %s -p <port number> -f <root directory>\n", ctx->argv[0]);
     fprintf(stderr, "\nOptions:\n");
     fprintf(stderr, "-h Display this help and exit\n");
 }

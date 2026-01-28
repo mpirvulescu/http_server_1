@@ -6,7 +6,9 @@
 #include <sys/un.h>
 
 enum {
-    ERROR_BUFFER_SIZE = 256
+    ERROR_BUFFER_SIZE = 256,
+    PORT_INPUT_BASE = 10,
+    MAX_PORT_NUMBER = 65535,
 };
 
 struct http_request {
