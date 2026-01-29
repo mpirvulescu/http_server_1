@@ -1,10 +1,11 @@
 
-#pragma once
+#ifndef SERVER_H
+#define SERVER_H
 
 #include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <sys/un.h>
+#include <sys/socket.h>
 
 enum {
     ERROR_BUFFER_SIZE = 256,
@@ -42,7 +43,8 @@ struct server_context {
     int exit_code;
     char *exit_message; // Dynamically allocated
 
-    struct sockaddr_un addr;
+    const char *ip_address; //added this
+    struct sockaddr_storage addr;
 
     int listen_fd;
     const char* user_entered_port;
@@ -58,3 +60,4 @@ struct server_context {
 
 typedef struct server_context server_context;
 
+#endif /*SERVER_H*/

@@ -1,5 +1,8 @@
 #include "../include/server.h"
+#include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -7,7 +10,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables
 static volatile sig_atomic_t exit_flag = 0;
@@ -42,9 +44,9 @@ static void setup_signal_handler(void);
 
 static void signal_handler(int sig);
 
-static void init_server_socket(const server_context *ctx)
-{
-}
+static int convert_address(server_context *ctx);
+
+static void init_server_socket(server_context *ctx);
 
 static void event_loop(const server_context *ctx)
 {
@@ -315,6 +317,7 @@ int main(const int argc, char **argv)
 
     parse_arguments(&ctx);
     validate_arguments(&ctx);
+    init_server_socket(&ctx);
 
     return EXIT_SUCCESS;
 }
@@ -342,10 +345,53 @@ int main(const int argc, char **argv)
 //     return EXIT_SUCCESS;
 // }
 
+// bad parse arguments I think
+
+// static void parse_arguments(server_context *ctx)
+// {
+//     int         opt;
+//     const char *optstring = "h:p:f:"; //lol the bug was no colon after f
+//     opterr                = 0;
+
+//     while((opt = getopt(ctx->argc, ctx->argv, optstring)) != -1)
+//     {
+//         switch(opt)
+//         {
+//             case 'p':
+//                 ctx->user_entered_port = optarg;
+//                 break;
+//             case 'f':
+//                 ctx->root_directory = optarg;
+//                 break;
+//             case 'h':
+//                 ctx->exit_code = EXIT_SUCCESS;
+//                 print_usage(ctx);
+//                 break;
+//             case ':':
+//                 fprintf(stderr, "Error: Option %c requires an argument.\n", optopt);
+//                 ctx->exit_code = EXIT_FAILURE;
+//                 print_usage(ctx);
+//                 break;
+//             case '?':
+//                 fprintf(stderr, "Error: unknown option: -%c\n", optopt);
+//                 ctx->exit_code = EXIT_FAILURE;
+//                 print_usage(ctx);
+//                 break;
+//             default:
+//                 ctx->exit_code = EXIT_FAILURE;
+//                 print_usage(ctx);
+//                 break;
+//         }
+//     }
+// }
+
+// NEW GOOD WAY  I THINK
 static void parse_arguments(server_context *ctx)
 {
-    int         opt;
-    const char *optstring = "h:p:f";
+    int opt;
+    // leading colon ':' tells getopt to return ':' for missing arguments
+    // instead of printing its own default error message.
+    const char *optstring = ":p:f:i:h";
     opterr                = 0;
 
     while((opt = getopt(ctx->argc, ctx->argv, optstring)) != -1)
@@ -358,17 +404,21 @@ static void parse_arguments(server_context *ctx)
             case 'f':
                 ctx->root_directory = optarg;
                 break;
-            case 'h':
-                ctx->exit_code = EXIT_SUCCESS;
-                print_usage(ctx);
+            case 'i':
+                ctx->ip_address = optarg;
                 break;
+            case 'h':
+                print_usage(ctx);
+                exit(EXIT_SUCCESS);
             case ':':
-                fprintf(stderr, "Error: Option %c requires an argument.\n", optopt);
+                // deals with case where user types "-p" but forgets the value
+                fprintf(stderr, "Error: Option '-%c' requires an argument.\n", optopt);
                 ctx->exit_code = EXIT_FAILURE;
                 print_usage(ctx);
                 break;
             case '?':
-                fprintf(stderr, "Error: unknown option: -%c\n", optopt);
+                // deals with unknown options (e.g. "-z")
+                fprintf(stderr, "Error: Unknown option '-%c'.\n", optopt);
                 ctx->exit_code = EXIT_FAILURE;
                 print_usage(ctx);
                 break;
@@ -382,6 +432,7 @@ static void parse_arguments(server_context *ctx)
 
 static void validate_arguments(server_context *ctx)
 {
+    // check the damn flags
     if(ctx->user_entered_port == NULL)
     {
         fprintf(stderr, "Error: Port number is required (-p <port>).\n");
@@ -392,29 +443,31 @@ static void validate_arguments(server_context *ctx)
 
     if(ctx->root_directory == NULL)
     {
-        fprintf(stderr, "Error: Root Directory is required (-f <root directory>).\n");
+        fprintf(stderr, "Error: Root Directory is required (-f <dir>).\n");
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
         return;
     }
 
+    // validate port
     char *endptr;
-    errno = 0;
-    unsigned long user_defined_port;
-    user_defined_port = strtoul(ctx->user_entered_port, &endptr, PORT_INPUT_BASE);
+    errno                           = 0;
+    unsigned long user_defined_port = strtoul(ctx->user_entered_port, &endptr, PORT_INPUT_BASE);
 
-    if(errno != 0 || *endptr != '\0' || user_defined_port > UINT16_MAX || user_defined_port < 0)
+    if(errno != 0 || *endptr != '\0' || user_defined_port > UINT16_MAX)
     {
-        fprintf(stderr, "Error: Invalid port number. Must be between 0 and 65535.\n");
+        fprintf(stderr, "Error: Invalid port number '%s'. Must be 0-65535.\n", ctx->user_entered_port);
         ctx->exit_code = EXIT_FAILURE;
-        print_usage(ctx);
         return;
     }
 
+    ctx->port_number = (uint16_t)user_defined_port;
+
+    // validate directory
     struct stat st;
     if(stat(ctx->root_directory, &st) != 0)
     {
-        fprintf(stderr, "Error: Cannot access directory: %s\n", ctx->root_directory);
+        perror("Error accessing root directory");
         ctx->exit_code = EXIT_FAILURE;
         return;
     }
@@ -428,19 +481,35 @@ static void validate_arguments(server_context *ctx)
 
     if(access(ctx->root_directory, R_OK | X_OK) != 0)
     {
-        fprintf(stderr, "Error: you do not have the necessary permissions for directory: %s\n", ctx->root_directory);
+        fprintf(stderr, "Error: No permissions to read/execute directory '%s'.\n", ctx->root_directory);
         ctx->exit_code = EXIT_FAILURE;
         return;
     }
 
-    ctx->port_number = (uint16_t)user_defined_port;
+    // default to localhost if not provided, this makes sense i think
+    if(ctx->ip_address == NULL)
+    {
+        ctx->ip_address = "127.0.0.1";
+    }
+
+    // putting convert address as helper to follow FSM more
+    if(convert_address(ctx) == -1)
+    {
+        fprintf(stderr, "Error: '%s' is not a valid IPv4 or IPv6 address.\n", ctx->ip_address);
+        ctx->exit_code = EXIT_FAILURE;
+        return;
+    }
 }
 
 static void print_usage(const server_context *ctx)
 {
-    fprintf(stderr, "Usage: %s -p <port number> -f <root directory>\n", ctx->argv[0]);
+    // updated usage
+    fprintf(stderr, "Usage: %s -p <port> -f <root_directory> [-i <ip_address>] [-h]\n", ctx->argv[0]);
     fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "-h Display this help and exit\n");
+    fprintf(stderr, "  -p <port>   Port number to listen on (Required)\n");
+    fprintf(stderr, "  -f <path>   Path to document root (Required)\n");
+    fprintf(stderr, "  -i <ip>     IP address to bind (Default: 127.0.0.1)\n");
+    fprintf(stderr, "  -h          Display this help and exit\n");
 }
 
 static void setup_signal_handler(void)
@@ -462,4 +531,134 @@ static void signal_handler(int sig)
     exit_flag = 1;
 }
 
-static 
+static int convert_address(server_context *ctx)
+{
+    memset(&ctx->addr, 0, sizeof(ctx->addr));
+
+    // IPv4
+    if(inet_pton(AF_INET, ctx->ip_address, &(((struct sockaddr_in *)&ctx->addr)->sin_addr)) == 1)
+    {
+        ctx->addr.ss_family = AF_INET;
+        return 0;
+    }
+
+    // IPv6
+    if(inet_pton(AF_INET6, ctx->ip_address, &(((struct sockaddr_in6 *)&ctx->addr)->sin6_addr)) == 1)
+    {
+        ctx->addr.ss_family = AF_INET6;
+        return 0;
+    }
+
+    return -1;
+}
+
+static void init_server_socket(server_context *ctx)
+{
+    // create
+    int sockfd;
+
+    /*stupid darcy build forces me to use SOCK_STREAM | SOCK_CLOEXEC but
+    SHIT DOESNT WORK ON MAC BRO ITS FOR ANDROID AND LINUX PEOPLE.
+    I needed to add the NOLINT shit to stop fucking my asshole with the stupid warning
+    */
+    sockfd = socket(ctx->addr.ss_family, SOCK_STREAM, 0);    // NOLINT(android-cloexec-socket)
+
+    if(sockfd == -1)
+    {
+        fprintf(stderr, "Error: socket could not be created\n");
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    // FIX: Set FD_CLOEXEC manually for portability
+    //READ THIS: i have no idea if this shit will work for you Giorgio, i asked ai. godspeed
+    if(fcntl(sockfd, F_SETFD, FD_CLOEXEC) == -1)
+    {
+        fprintf(stderr, "Error: fcntl failed\n");
+        close(sockfd);
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    // skip the stupid timeout phase
+    int enable;
+    enable = 1;
+
+    if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) == -1)
+    {
+        fprintf(stderr, "Error: setsockopt failed\n");
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    // bind
+    char      addr_str[INET6_ADDRSTRLEN];
+    socklen_t addr_len;
+    void     *vaddr;
+    in_port_t net_port;
+
+    net_port = htons(ctx->port_number);
+
+    if(ctx->addr.ss_family == AF_INET)
+    {
+        struct sockaddr_in *ipv4_addr;
+
+        ipv4_addr           = (struct sockaddr_in *)&ctx->addr;
+        addr_len            = sizeof(*ipv4_addr);
+        ipv4_addr->sin_port = net_port;
+        vaddr               = (void *)&(((struct sockaddr_in *)&ctx->addr)->sin_addr);
+    }
+    else if(ctx->addr.ss_family == AF_INET6)
+    {
+        struct sockaddr_in6 *ipv6_addr;
+
+        ipv6_addr            = (struct sockaddr_in6 *)&ctx->addr;
+        addr_len             = sizeof(*ipv6_addr);
+        ipv6_addr->sin6_port = net_port;
+        vaddr                = (void *)&(((struct sockaddr_in6 *)&ctx->addr)->sin6_addr);
+    }
+    else
+    {
+        fprintf(stderr, "Error: addr->ss_family must be AF_INET or AF_INET6, was: %d\n", ctx->addr.ss_family);
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    if(inet_ntop(ctx->addr.ss_family, vaddr, addr_str, sizeof(addr_str)) == NULL)
+    {
+        fprintf(stderr, "Error: inet_ntop failed");
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    printf("Binding to %s:%u\n", addr_str, ctx->port_number);
+
+    if(bind(sockfd, (struct sockaddr *)&ctx->addr, addr_len) == -1)
+    {
+        fprintf(stderr, "Error: binding to the socket failed");
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    printf("Bound to socket: %s:%u\n", addr_str, ctx->port_number);
+
+    // listen
+    if(listen(sockfd, SOMAXCONN) == -1)
+    {
+        fprintf(stderr, "Listening failed");
+        close(sockfd);
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+        return;
+    }
+
+    printf("Listening for incoming connections...\n");
+
+    ctx->listen_fd = sockfd;
+}
