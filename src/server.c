@@ -34,11 +34,13 @@ static server_context init_context()
     return ctx;
 }
 
+__attribute__((noreturn)) static void quit(const server_context *ctx);
+
 static void parse_arguments(server_context *ctx);
 
 static void validate_arguments(server_context *ctx);
 
-static void print_usage(const server_context *ctx);
+__attribute__((noreturn)) static void print_usage(const server_context *ctx);
 
 static void setup_signal_handler(void);
 
@@ -322,6 +324,15 @@ int main(const int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
+__attribute__((noreturn)) static void quit(const server_context *ctx)
+{
+    if(ctx->exit_message != NULL)
+    {
+        fputs(ctx->exit_message, stderr);
+    }
+    exit(ctx->exit_code);
+}
+
 // Main for testing parse_http_request
 // int main()
 // {
@@ -408,24 +419,21 @@ static void parse_arguments(server_context *ctx)
                 ctx->ip_address = optarg;
                 break;
             case 'h':
+                ctx->exit_code = EXIT_SUCCESS;
                 print_usage(ctx);
-                exit(EXIT_SUCCESS);
             case ':':
                 // deals with case where user types "-p" but forgets the value
                 fprintf(stderr, "Error: Option '-%c' requires an argument.\n", optopt);
                 ctx->exit_code = EXIT_FAILURE;
                 print_usage(ctx);
-                break;
             case '?':
                 // deals with unknown options (e.g. "-z")
                 fprintf(stderr, "Error: Unknown option '-%c'.\n", optopt);
                 ctx->exit_code = EXIT_FAILURE;
                 print_usage(ctx);
-                break;
             default:
                 ctx->exit_code = EXIT_FAILURE;
                 print_usage(ctx);
-                break;
         }
     }
 }
@@ -435,18 +443,16 @@ static void validate_arguments(server_context *ctx)
     // check the damn flags
     if(ctx->user_entered_port == NULL)
     {
-        fprintf(stderr, "Error: Port number is required (-p <port>).\n");
+        fputs("Error: Port number is required (-p <port>).\n", stderr);
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
-        return;
     }
 
     if(ctx->root_directory == NULL)
     {
-        fprintf(stderr, "Error: Root Directory is required (-f <dir>).\n");
+        fputs("Error: Root Directory is required (-f <dir>).\n", stderr);
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
-        return;
     }
 
     // validate port
@@ -458,7 +464,7 @@ static void validate_arguments(server_context *ctx)
     {
         fprintf(stderr, "Error: Invalid port number '%s'. Must be 0-65535.\n", ctx->user_entered_port);
         ctx->exit_code = EXIT_FAILURE;
-        return;
+        quit(ctx);
     }
 
     ctx->port_number = (uint16_t)user_defined_port;
@@ -469,21 +475,21 @@ static void validate_arguments(server_context *ctx)
     {
         perror("Error accessing root directory");
         ctx->exit_code = EXIT_FAILURE;
-        return;
+        quit(ctx);
     }
 
     if(!S_ISDIR(st.st_mode))
     {
         fprintf(stderr, "Error: '%s' is not a directory.\n", ctx->root_directory);
         ctx->exit_code = EXIT_FAILURE;
-        return;
+        quit(ctx);
     }
 
     if(access(ctx->root_directory, R_OK | X_OK) != 0)
     {
         fprintf(stderr, "Error: No permissions to read/execute directory '%s'.\n", ctx->root_directory);
         ctx->exit_code = EXIT_FAILURE;
-        return;
+        quit(ctx);
     }
 
     // default to localhost if not provided, this makes sense i think
@@ -497,19 +503,20 @@ static void validate_arguments(server_context *ctx)
     {
         fprintf(stderr, "Error: '%s' is not a valid IPv4 or IPv6 address.\n", ctx->ip_address);
         ctx->exit_code = EXIT_FAILURE;
-        return;
+        quit(ctx);
     }
 }
 
-static void print_usage(const server_context *ctx)
+__attribute__((noreturn)) static void print_usage(const server_context *ctx)
 {
     // updated usage
     fprintf(stderr, "Usage: %s -p <port> -f <root_directory> [-i <ip_address>] [-h]\n", ctx->argv[0]);
-    fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  -p <port>   Port number to listen on (Required)\n");
-    fprintf(stderr, "  -f <path>   Path to document root (Required)\n");
-    fprintf(stderr, "  -i <ip>     IP address to bind (Default: 127.0.0.1)\n");
-    fprintf(stderr, "  -h          Display this help and exit\n");
+    fputs("\nOptions:\n", stderr);
+    fputs("  -p <port>   Port number to listen on (Required)\n", stderr);
+    fputs("  -f <path>   Path to document root (Required)\n", stderr);
+    fputs("  -i <ip>     IP address to bind (Default: 127.0.0.1)\n", stderr);
+    fputs("  -h          Display this help and exit\n", stderr);
+    quit(ctx);
 }
 
 static void setup_signal_handler(void)
@@ -567,19 +574,17 @@ static void init_server_socket(server_context *ctx)
     {
         fprintf(stderr, "Error: socket could not be created\n");
         ctx->exit_code = EXIT_FAILURE;
-        print_usage(ctx);
-        return;
+        quit(ctx);
     }
 
     // FIX: Set FD_CLOEXEC manually for portability
-    //READ THIS: i have no idea if this shit will work for you Giorgio, i asked ai. godspeed
+    // READ THIS: i have no idea if this shit will work for you Giorgio, i asked ai. godspeed
     if(fcntl(sockfd, F_SETFD, FD_CLOEXEC) == -1)
     {
         fprintf(stderr, "Error: fcntl failed\n");
         close(sockfd);
         ctx->exit_code = EXIT_FAILURE;
-        print_usage(ctx);
-        return;
+        quit(ctx);
     }
 
     // skip the stupid timeout phase
@@ -590,8 +595,7 @@ static void init_server_socket(server_context *ctx)
     {
         fprintf(stderr, "Error: setsockopt failed\n");
         ctx->exit_code = EXIT_FAILURE;
-        print_usage(ctx);
-        return;
+        quit(ctx);
     }
 
     // bind
@@ -625,25 +629,22 @@ static void init_server_socket(server_context *ctx)
         fprintf(stderr, "Error: addr->ss_family must be AF_INET or AF_INET6, was: %d\n", ctx->addr.ss_family);
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
-        return;
     }
 
     if(inet_ntop(ctx->addr.ss_family, vaddr, addr_str, sizeof(addr_str)) == NULL)
     {
-        fprintf(stderr, "Error: inet_ntop failed");
+        fprintf(stderr, "Error: inet_ntop failed\n");
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
-        return;
     }
 
     printf("Binding to %s:%u\n", addr_str, ctx->port_number);
 
     if(bind(sockfd, (struct sockaddr *)&ctx->addr, addr_len) == -1)
     {
-        fprintf(stderr, "Error: binding to the socket failed");
+        fprintf(stderr, "Error: binding to the socket failed\n");
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
-        return;
     }
 
     printf("Bound to socket: %s:%u\n", addr_str, ctx->port_number);
@@ -651,11 +652,10 @@ static void init_server_socket(server_context *ctx)
     // listen
     if(listen(sockfd, SOMAXCONN) == -1)
     {
-        fprintf(stderr, "Listening failed");
+        fprintf(stderr, "Listening failed\n");
         close(sockfd);
         ctx->exit_code = EXIT_FAILURE;
         print_usage(ctx);
-        return;
     }
 
     printf("Listening for incoming connections...\n");
