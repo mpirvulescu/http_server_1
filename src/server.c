@@ -134,92 +134,121 @@ static void read_request(const server_context *ctx, client_state *state)
 
 struct split_string
 {
-    size_t count;
-    char **strings;
+    ssize_t count;
+    char  **strings;
 };
 
-static struct split_string str_split(char *string, const char *delimiter)
+static int get_tokens_in_str(const char *string, const char *delimiter)
 {
-    size_t              substring_count;
-    char               *last_delimiter;
-    size_t              cur_substring;
-    char               *token;
-    size_t              delimiter_length;
-    struct split_string result;
-    bool                lastIndexWasDelim = false;
-    char               *temp_string;
+    char *temp_string;
+    char *token;
 
-    result.count = 0;
+    int count = 0;
+
+    temp_string = strdup(string);
+    if(temp_string == NULL)
+    {
+        perror("Memory allocation failed when getting tokens in string\n");
+        return -1;
+    }
+    token = strtok(temp_string, delimiter);
+    while(token != NULL)
+    {
+        count++;
+        token = strtok(NULL, delimiter);
+    }
+    free(temp_string);
+    return count;
+}
+
+static void free_split_string(struct split_string *split_string)
+{
+    if(split_string->strings == NULL)
+    {
+        return;
+    }
+
+    // Free all of the duped strings
+    for(int i = 0; i < split_string->count; i++)
+    {
+        if(split_string->strings[i] == NULL)
+        {
+            continue;
+        }
+        free(split_string->strings[i]);
+        split_string->strings[i] = NULL;
+    }
+    // Free the array itself
+    free((void *)split_string->strings);
+    split_string->strings = NULL;
+}
+
+// Returns with result.strings == NULL to signal failure
+static struct split_string str_split(const char *string, const char *delimiter)
+{
+    char               *token;
+    struct split_string result = {0};
+    char               *temp_string;
+    char               *token_dup;
+    int                 tokens_count;
+
     if(delimiter == NULL || delimiter[0] == '\0' || string == NULL || string[0] == '\0')
     {
         result.strings = NULL;
         return result;
     }
 
-    temp_string = strdup(string);
-    token       = strtok(temp_string, delimiter);
-    while(token != NULL)
+    tokens_count = get_tokens_in_str(string, delimiter);
+    if(tokens_count <= 0)
     {
-        result.count++;
+        result.strings = NULL;
+        return result;
+    }
+
+    result.count   = tokens_count;
+    result.strings = (char **)malloc(sizeof(char *) * result.count);
+    if(result.strings == NULL)
+    {
+        return result;
+    }
+    memset((void *)result.strings, 0, (sizeof(char *) * result.count));
+
+    temp_string = strdup(string);
+    if(temp_string == NULL)
+    {
+        perror("Memory allocation failed when getting tokens in string\n");
+        free((void *)result.strings);
+        result.strings = NULL;
+        return result;
+    }
+    token = strtok(temp_string, delimiter);
+    for(size_t i = 0; i < result.count; i++)
+    {
+        if(token == NULL)
+        {
+            // Somehow not enough tokens
+            fputs("str_split error: less tokens than expected\n", stderr);
+            free(temp_string);
+            free_split_string(&result);
+            result.strings = NULL;
+            return result;
+        }
+        token_dup = strdup(token);
+        if(token_dup == NULL)
+        {
+            perror("Memory allocation failed when splitting strings\n");
+            free(temp_string);
+            free_split_string(&result);
+            result.strings = NULL;
+            return result;
+        }
+        result.strings[i] = token_dup;
+
         token = strtok(NULL, delimiter);
     }
     free(temp_string);
 
-    if(result.count == 0)
-    {
-        result.strings = NULL;
-        return result;
-    }
-
-    result.strings = (char **)malloc(sizeof(char *) * result.count);
-    memset((void *)result.strings, 0, (sizeof(char *) * result.count));
-
-    if(result.strings == NULL)
-    {
-        result.strings = NULL;
-        return result;
-    }
-
-    cur_substring = 0;
-    temp_string   = strdup(string);
-    token         = strtok(string, delimiter);
-    while(token != NULL)
-    {
-        if(cur_substring == result.count)
-        {
-            // Somehow more tokens than we expected
-            printf("str_split error: more tokens than expected");
-            break;
-        }
-        result.strings[cur_substring] = strdup(token);
-        token                         = strtok(NULL, delimiter);
-        cur_substring++;
-    }
-    free(temp_string);
-
     return result;
-}
-
-static void free_split_string(struct split_string split_string)
-{
-    if(split_string.strings == NULL)
-    {
-        return;
-    }
-
-    // Free all of the duped strings
-    for(int i = 0; i < split_string.count; i++)
-    {
-        if(split_string.strings[i] == NULL)
-        {
-            continue;
-        }
-        free(split_string.strings[i]);
-        split_string.strings[i] = NULL;
-    }
-    // Free the array itself
-    free((void *)split_string.strings);
-    split_string.strings = NULL;
 }
 
 static void parse_http_request(const server_context *ctx, client_state *state)
@@ -227,25 +256,25 @@ static void parse_http_request(const server_context *ctx, client_state *state)
     struct split_string lines;
     lines = str_split(state->request_buffer, "\r\n");
 
-    if(lines.count < 1)
+    if(lines.count < 1 || lines.strings == NULL)
     {
-        free_split_string(lines);
+        free_split_string(&lines);
         close_client(ctx, state);
         return;
     }
 
     struct split_string mainParts = str_split(lines.strings[0], " ");
-    if(mainParts.count != 3)
+    if(mainParts.count != 3 || mainParts.strings == NULL)
     {
-        free_split_string(lines);
-        free_split_string(mainParts);
+        free_split_string(&lines);
+        free_split_string(&mainParts);
         close_client(ctx, state);
         return;
     }
     if(strcmp(mainParts.strings[2], "HTTP/1.0") != 0)
     {
-        free_split_string(lines);
-        free_split_string(mainParts);
+        free_split_string(&lines);
+        free_split_string(&mainParts);
         close_client(ctx, state);
         return;
     }
@@ -258,8 +287,8 @@ static void parse_http_request(const server_context *ctx, client_state *state)
         // lines.strings[line] // New header
     }
 
-    free_split_string(mainParts);
-    free_split_string(lines);
+    free_split_string(&mainParts);
+    free_split_string(&lines);
 }
 
 static void validate_http_request(const client_state *state)
