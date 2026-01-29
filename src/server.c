@@ -142,6 +142,7 @@ static int get_tokens_in_str(const char *string, const char *delimiter)
 {
     char *temp_string;
     char *token;
+    char *save_ptr;
 
     int count = 0;
 
@@ -151,11 +152,11 @@ static int get_tokens_in_str(const char *string, const char *delimiter)
         perror("Memory allocation failed when getting tokens in string\n");
         return -1;
     }
-    token = strtok(temp_string, delimiter);
+    token = strtok_r(temp_string, delimiter, &save_ptr);
     while(token != NULL)
     {
         count++;
-        token = strtok(NULL, delimiter);
+        token = strtok_r(NULL, delimiter, &save_ptr);
     }
     free(temp_string);
     return count;
@@ -191,6 +192,7 @@ static struct split_string str_split(const char *string, const char *delimiter)
     char               *temp_string;
     char               *token_dup;
     int                 tokens_count;
+    char               *save_ptr;
 
     if(delimiter == NULL || delimiter[0] == '\0' || string == NULL || string[0] == '\0')
     {
@@ -221,7 +223,7 @@ static struct split_string str_split(const char *string, const char *delimiter)
         result.strings = NULL;
         return result;
     }
-    token = strtok(temp_string, delimiter);
+    token = strtok_r(temp_string, delimiter, &save_ptr);
     for(size_t i = 0; i < result.count; i++)
     {
         if(token == NULL)
@@ -244,7 +246,7 @@ static struct split_string str_split(const char *string, const char *delimiter)
         }
         result.strings[i] = token_dup;
 
-        token = strtok(NULL, delimiter);
+        token = strtok_r(NULL, delimiter, &save_ptr);
     }
     free(temp_string);
 
