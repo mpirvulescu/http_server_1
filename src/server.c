@@ -14,7 +14,7 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables
 static volatile sig_atomic_t exit_flag = 0;
 
-static void parse_http_request(const server_context *ctx, client_state *state);
+static int parse_http_request(const server_context *ctx, client_state *state);
 
 static server_context init_context()
 {
@@ -253,7 +253,7 @@ static struct split_string str_split(const char *string, const char *delimiter)
     return result;
 }
 
-static void parse_http_request(const server_context *ctx, client_state *state)
+static int parse_http_request(const server_context *ctx, client_state *state)
 {
     struct split_string lines;
     lines = str_split(state->request_buffer, "\r\n");
@@ -261,8 +261,7 @@ static void parse_http_request(const server_context *ctx, client_state *state)
     if(lines.count < 1 || lines.strings == NULL)
     {
         free_split_string(&lines);
-        close_client(ctx, state);
-        return;
+        return -1;
     }
 
     struct split_string mainParts = str_split(lines.strings[0], " ");
@@ -270,16 +269,9 @@ static void parse_http_request(const server_context *ctx, client_state *state)
     {
         free_split_string(&lines);
         free_split_string(&mainParts);
-        close_client(ctx, state);
-        return;
+        return -1;
     }
-    if(strcmp(mainParts.strings[2], "HTTP/1.0") != 0)
-    {
-        free_split_string(&lines);
-        free_split_string(&mainParts);
-        close_client(ctx, state);
-        return;
-    }
+
     state->request.method          = strdup(mainParts.strings[0]);
     state->request.path            = strdup(mainParts.strings[1]);
     state->request.protocolVersion = strdup(mainParts.strings[2]);
@@ -291,30 +283,63 @@ static void parse_http_request(const server_context *ctx, client_state *state)
 
     free_split_string(&mainParts);
     free_split_string(&lines);
+    return 0;
 }
 
-static void validate_http_request(const client_state *state)
+static int validate_http_request(const client_state *state)
 {
+    if(strcmp(state->request.protocolVersion, "HTTP/1.0") != 0)
+    {
+        return -1;
+    }
+    if(strcmp(state->request.method, "GET") != 0 || strcmp(state->request.method, "HEAD") != 0 || strcmp(state->request.method, "POST") != 0)
+    {
+        return -1;
+    }
+    return 0;
 }
 
 static void dispatch_method(const client_state *state)
 {
 }
 
-static void handle_get(const client_state *state)
+static void map_url_to_path(const server_context *ctx, client_state *state)
 {
-}
+    size_t root_directory_length;
+    size_t request_path_length;
+    size_t combined_length;
+    char  *combined_path;
+    char  *real_path;
+    bool   path_is_valid;
 
-static void handle_head(const client_state *state)
-{
-}
+    state->file_path      = NULL;
+    root_directory_length = strlen(ctx->root_directory);
+    request_path_length   = strlen(state->request.path);
+    combined_length       = root_directory_length + request_path_length;
 
-static void handle_post(const client_state *state)
-{
-}
+    combined_path = malloc((sizeof(char) * combined_length) + 2);
+    if(combined_path == NULL)
+    {
+        return;
+    }
 
-static void map_url_to_path()
-{
+    strncpy(combined_path, ctx->root_directory, root_directory_length);
+    combined_path[root_directory_length] = '/';
+    strncpy(combined_path + root_directory_length + 1, ctx->root_directory, request_path_length);
+
+    real_path = realpath(combined_path, NULL);
+    free(combined_path);
+    if(real_path == NULL)
+    {
+        return;
+    }
+
+    path_is_valid = strncmp(ctx->root_directory, real_path, root_directory_length) == 0;
+
+    if(path_is_valid)
+    {
+        state->file_path = real_path;
+    }
 }
 
 static void check_file()
@@ -338,6 +363,18 @@ static void send_error_response(const server_context *ctx)
 }
 
 static void set_status(const server_context *ctx)
+{
+}
+
+static void handle_get(const client_state *state)
+{
+}
+
+static void handle_head(const client_state *state)
+{
+}
+
+static void handle_post(const client_state *state)
 {
 }
 
@@ -430,7 +467,8 @@ __attribute__((noreturn)) static void quit(const server_context *ctx)
 // NEW GOOD WAY  I THINK
 static void parse_arguments(server_context *ctx)
 {
-    int opt;
+    int   opt;
+    char *real_root_directory;
     // leading colon ':' tells getopt to return ':' for missing arguments
     // instead of printing its own default error message.
     const char *optstring = ":p:f:i:h";
@@ -444,7 +482,14 @@ static void parse_arguments(server_context *ctx)
                 ctx->user_entered_port = optarg;
                 break;
             case 'f':
-                ctx->root_directory = optarg;
+                real_root_directory = realpath(optarg, NULL);
+                if(real_root_directory == NULL)
+                {
+                    fprintf(stderr, "Error: Failed getting real path of root directory \"%s\".\n", optarg);
+                    ctx->exit_code = EXIT_FAILURE;
+                    quit(ctx);
+                }
+                ctx->root_directory = real_root_directory;
                 break;
             case 'i':
                 ctx->ip_address = optarg;

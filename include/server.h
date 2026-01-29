@@ -31,6 +31,8 @@ struct client_state {
     size_t request_buffer_filled;
     char *request_buffer;
 
+    char *file_path;
+
     http_request request;
 };
 
