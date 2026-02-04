@@ -1,7 +1,10 @@
+#define _POSIX_C_SOURCE 200809L    // NOLINT
+
 #include "../include/server.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -10,6 +13,18 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#ifndef NI_MAXHOST
+    #define NI_MAXHOST 1025
+#endif
+#ifndef NI_MAXSERV
+    #define NI_MAXSERV 32
+#endif
+
+enum
+{
+    INITIAL_POLLFDS_CAPACITY = 11
+};
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables
 static volatile sig_atomic_t exit_flag = 0;
@@ -50,26 +65,28 @@ static int convert_address(server_context *ctx);
 
 static void init_server_socket(server_context *ctx);
 
-static void event_loop(const server_context *ctx)
-{
-}
+static void init_poll_fds(server_context *ctx);
 
-static void accept_client(const server_context *ctx)
-{
-}
+static void event_loop(server_context *ctx);
 
-static void close_client(const server_context *ctx, const client_state *state)
-{
-}
+static void accept_client(server_context *ctx);
 
-static void cleanup_server(const server_context *ctx)
-{
-}
+static void close_client(server_context *ctx, const client_state *state);
 
-static void read_request(const server_context *ctx, client_state *state)
+static void cleanup_server(const server_context *ctx);
+
+static void read_request(server_context *ctx, client_state *state)
 {
     const char  *request_sentinel        = "\r\n\r\n";
     const size_t request_sentinel_length = strlen(request_sentinel);
+
+    // markp: added freeing existing buffer if it exists to prevent leak/overwrite
+    // needed to set to null after free so closeing client doesn't double-free if error
+    if(state->request_buffer)
+    {
+        free(state->request_buffer);
+        state->request_buffer = NULL;
+    }
 
     // Allocate request buffer
     state->request_buffer = malloc(BASE_REQUEST_BUFFER_CAPACITY);
@@ -110,16 +127,19 @@ static void read_request(const server_context *ctx, client_state *state)
             case -1:    // ERROR
                 if(errno != EINTR)
                 {
-                    free(state->request_buffer);
-                    state->request_buffer_capacity = 0;
-                    state->request_buffer_filled   = 0;
+                    // i made close_client, fixing build
+                    //  free(state->request_buffer);
+                    //  state->request_buffer_capacity = 0;
+                    //  state->request_buffer_filled   = 0;
                     close_client(ctx, state);
                     return;
                 }
-            case 0:    // EOF
-                free(state->request_buffer);
-                state->request_buffer_capacity = 0;
-                state->request_buffer_filled   = 0;
+                break;    // mark p added
+            case 0:       // EOF
+                // mark p made close_client, fixing build
+                //  free(state->request_buffer);
+                //  state->request_buffer_capacity = 0;
+                //  state->request_buffer_filled   = 0;
                 close_client(ctx, state);
                 return;
             default:
@@ -309,7 +329,7 @@ static int validate_http_request(const client_state *state)
     {
         return -1;
     }
-    
+
     return 0;
 }
 
@@ -402,6 +422,10 @@ int main(const int argc, char **argv)
     parse_arguments(&ctx);
     validate_arguments(&ctx);
     init_server_socket(&ctx);
+    init_poll_fds(&ctx);
+    event_loop(&ctx);
+
+    cleanup_server(&ctx);
 
     return EXIT_SUCCESS;
 }
@@ -751,4 +775,310 @@ static void init_server_socket(server_context *ctx)
     printf("Listening for incoming connections...\n");
 
     ctx->listen_fd = sockfd;
+}
+
+static void init_poll_fds(struct server_context *ctx)
+{
+    // space for 1 listener and 10 clients to avoid realloc
+    ctx->pollfds_capacity = INITIAL_POLLFDS_CAPACITY;
+
+    // allocating client state array first
+    ctx->clients = malloc(sizeof(client_state) * ctx->pollfds_capacity);
+    if(ctx->clients == NULL)
+    {
+        perror("Error: client malloc failed");
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+    }
+
+    // initialize clients, avoiding garbage values
+    for(nfds_t i = 0; i < ctx->pollfds_capacity; i++)
+    {
+        ctx->clients[i].socket = -1;
+    }
+
+    // allocating pollfd array
+    ctx->pollfds = malloc(sizeof(struct pollfd) * (ctx->pollfds_capacity + 1));
+    if(ctx->pollfds == NULL)
+    {
+        perror("Error: pollfds malloc failed");
+        free(ctx->clients);
+        ctx->exit_code = EXIT_FAILURE;
+        print_usage(ctx);
+    }
+
+    // setting up listener which is at index 0
+    ctx->pollfds[0].fd      = ctx->listen_fd;
+    ctx->pollfds[0].events  = POLLIN;
+    ctx->pollfds[0].revents = 0;
+
+    for(nfds_t i = 1; i <= ctx->pollfds_capacity; i++)
+    {
+        ctx->pollfds[i].fd      = -1;
+        ctx->pollfds[i].events  = 0;
+        ctx->pollfds[i].revents = 0;
+    }
+
+    ctx->num_clients = 0;
+}
+
+static void accept_client(server_context *ctx)
+{
+    struct sockaddr_storage client_addr;
+    socklen_t               addr_len = sizeof(client_addr);
+    int                     client_fd;
+
+    char client_host[NI_MAXHOST];
+    char client_service[NI_MAXSERV];
+
+    errno = 0;
+    // accepting the client
+    client_fd = accept(ctx->listen_fd, (struct sockaddr *)&client_addr, &addr_len);
+
+    if(client_fd == -1)
+    {
+        if(errno == EINTR)
+        {
+            perror("Accept failed");
+        }
+        return;
+    }
+
+    // getting name info of the connection
+    if(getnameinfo((struct sockaddr *)&client_addr, addr_len, client_host, NI_MAXHOST, client_service, NI_MAXSERV, 0) == 0)
+    {
+        printf("Accepted a new connection from %s:%s\n", client_host, client_service);
+    }
+    else
+    {
+        printf("unable to get client information\n");
+    }
+
+    // resize arrays if full
+    // if(ctx->num_clients >= ctx->pollfds_capacity)
+    // {
+    //     size_t new_capacity = ctx->pollfds_capacity * 2;
+    //
+    //     // again, we need the new cap + 1 for listener
+    //     struct pollfd *new_poll    = realloc(ctx->pollfds, sizeof(struct pollfd) * (new_capacity + 1));
+    //     client_state  *new_clients = realloc(ctx->clients, sizeof(struct client_state) * new_capacity);
+    //
+    //     if(!new_poll || !new_clients)
+    //     {
+    //         perror("Error: realloc of new pollfds or new clients failed");
+    //         // question for giorgio. how should we deal with freeing here
+    //         if(new_poll)
+    //         {
+    //             free(new_poll);
+    //         }
+    //
+    //         if(new_clients)
+    //         {
+    //             free(new_clients);
+    //         }
+    //         close(client_fd);
+    //         return;
+    //     }
+    //
+    //     ctx->pollfds          = new_poll;
+    //     ctx->clients          = new_clients;
+    //     ctx->pollfds_capacity = new_capacity;
+    //
+    //     // initializing new slots that we just added
+    //     for(nfds_t i = ctx->num_clients + 1; i <= new_capacity; i++)
+    //     {
+    //         ctx->pollfds[i].fd      = -1;
+    //         ctx->pollfds[i].events  = 0;
+    //         ctx->pollfds[i].revents = 0;
+    //     }
+    // }
+    if(ctx->num_clients >= ctx->pollfds_capacity)
+    {
+        size_t new_capacity = (ctx->num_clients + 1) * 2;
+
+        // trying  to expand pollfds
+        struct pollfd *new_poll = realloc(ctx->pollfds, sizeof(struct pollfd) * (new_capacity + 1));
+        if(!new_poll)
+        {
+            perror("Error: realloc pollfds failed");
+            // old ctx->pollfds is still valid, just reject the current client
+            close(client_fd);
+            return;
+        }
+        // success
+        ctx->pollfds = new_poll;
+
+        // trying to expand clients
+        client_state *new_clients = realloc(ctx->clients, sizeof(client_state) * new_capacity);
+        if(!new_clients)
+        {
+            perror("Error: realloc clients failed");
+            // Old ctx->clients is still valid.
+            // ctx->pollfds is larger now, but that is safe (unused space).
+            close(client_fd);
+            return;
+        }
+        ctx->clients = new_clients;
+
+        // Initialize new slots
+        for(nfds_t i = ctx->pollfds_capacity + 1; i <= new_capacity; i++)
+        {
+            ctx->pollfds[i].fd      = -1;
+            ctx->pollfds[i].events  = 0;
+            ctx->pollfds[i].revents = 0;
+        }
+        ctx->pollfds_capacity = new_capacity;
+    }
+
+    // store the clients in the pollfds array
+    nfds_t poll_index   = ctx->num_clients + 1;
+    nfds_t client_index = ctx->num_clients;
+
+    ctx->pollfds[poll_index].fd      = client_fd;
+    ctx->pollfds[poll_index].events  = POLLIN;
+    ctx->pollfds[poll_index].revents = 0;
+
+    memset(&ctx->clients[client_index], 0, sizeof(client_state));
+    ctx->clients[client_index].socket = client_fd;
+
+    ctx->num_clients++;
+}
+
+static void event_loop(server_context *ctx)
+{
+    while(!exit_flag)
+    {
+        int activity = poll(ctx->pollfds, ctx->num_clients + 1, -1);
+
+        if(activity < 0)
+        {
+            if(errno == EINTR)
+            {
+                continue;
+            }
+            perror("Error: poll failed");
+            ctx->exit_code = EXIT_FAILURE;
+            return;
+        }
+
+        // check listener to see if we need to accept a new client
+        if(ctx->pollfds[0].revents & POLLIN)
+        {
+            accept_client(ctx);
+        }
+
+        // need to check clients cuz read_request might call close_client
+        // need to go backwards cuz if we close a client, array shrinks.
+        for(nfds_t i = ctx->num_clients; i > 0; i--)
+        {
+            nfds_t client_index = i - 1;
+            nfds_t poll_index   = client_index + 1;
+
+            if(ctx->pollfds[poll_index].revents & POLLIN)
+            {
+                read_request(ctx, &ctx->clients[client_index]);
+            }
+        }
+    }
+}
+
+static void close_client(server_context *ctx, const client_state *state)
+{
+    if(state->socket != -1)
+    {
+        close(state->socket);
+    }
+
+    if(state->request_buffer)
+    {
+        free(state->request_buffer);
+    }
+
+    if(state->file_path)
+    {
+        free(state->file_path);
+    }
+
+    if(state->request.method)
+    {
+        free(state->request.method);
+    }
+
+    if(state->request.path)
+    {
+        free(state->request.path);
+    }
+
+    if(state->request.protocolVersion)
+    {
+        free(state->request.protocolVersion);
+    }
+
+    // address of specific client - address of start of array = index
+    nfds_t client_index = state - ctx->clients;
+
+    // safety check
+    if((size_t)client_index >= ctx->num_clients)
+    {
+        return;
+    }
+
+    // remove from arrays by shifting everything down, need to fill gap left by client closing
+    size_t items_to_move = ctx->num_clients - client_index - 1;
+
+    if(items_to_move > 0)
+    {
+        // shifting clients array
+        memmove(&ctx->clients[client_index], &ctx->clients[client_index + 1], sizeof(client_state) * items_to_move);
+
+        // need to shift pollfds array too, but indices here are + 1 relative to clients because of listener
+        memmove(&ctx->pollfds[client_index + 1], &ctx->pollfds[client_index + 2], sizeof(struct pollfd) * items_to_move);
+    }
+
+    ctx->num_clients--;
+
+    printf("Safely removed client connection\n");
+}
+
+static void cleanup_server(const server_context *ctx)
+{
+    // Free the main arrays
+    if(ctx->pollfds)
+    {
+        free(ctx->pollfds);
+    }
+
+    if(ctx->clients)
+    {
+        // Free any remaining client buffers
+        for(nfds_t i = 0; i < ctx->num_clients; i++)
+        {
+            if(ctx->clients[i].request_buffer)
+            {
+                free(ctx->clients[i].request_buffer);
+            }
+            if(ctx->clients[i].request.method)
+            {
+                free(ctx->clients[i].request.method);
+            }
+            if(ctx->clients[i].request.path)
+            {
+                free(ctx->clients[i].request.path);
+            }
+            if(ctx->clients[i].request.protocolVersion)
+            {
+                free(ctx->clients[i].request.protocolVersion);
+            }
+            if(ctx->clients[i].file_path)
+            {
+                free(ctx->clients[i].file_path);
+            }
+        }
+        free(ctx->clients);
+    }
+
+    if(ctx->listen_fd != -1)
+    {
+        close(ctx->listen_fd);
+    }
 }
