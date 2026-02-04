@@ -286,16 +286,30 @@ static int parse_http_request(const server_context *ctx, client_state *state)
     return 0;
 }
 
+static bool is_valid_method(const char *const str)
+{
+    for(size_t i = 0; i < VALID_HTTP_METHODS_LENGTH; i++)
+    {
+        if(strcmp(str, VALID_HTTP_METHODS[i]) != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static int validate_http_request(const client_state *state)
 {
     if(strcmp(state->request.protocolVersion, "HTTP/1.0") != 0)
     {
         return -1;
     }
-    if(strcmp(state->request.method, "GET") != 0 || strcmp(state->request.method, "HEAD") != 0 || strcmp(state->request.method, "POST") != 0)
+
+    if(!is_valid_method(state->request.method))
     {
         return -1;
     }
+    
     return 0;
 }
 

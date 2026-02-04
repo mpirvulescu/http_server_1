@@ -8,6 +8,16 @@
 #include <sys/socket.h>
 
 enum {
+    VALID_HTTP_METHODS_LENGTH = 3,
+};
+
+const char * const VALID_HTTP_METHODS[VALID_HTTP_METHODS_LENGTH] = {
+    "GET",
+    "HEAD",
+    "POST",
+};
+
+enum {
     ERROR_BUFFER_SIZE = 256,
     PORT_INPUT_BASE = 10,
 
